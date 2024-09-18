@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Night Vision Camera with Motion Detection</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #000;
+            color: #fff;
+            font-family: Arial, sans-serif;
+        }
+        video, canvas {
+            width: 70%; /* Réduire encore plus la taille de la caméra */
+            height: auto;
+            border: 2px solid #00ff00;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
+            transition: transform 0.3s ease-in-out;
+        }
+        video:hover, canvas:hover {
+            transform: scale(1.05);
+        }
+        #controls {
+            margin: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        button, input[type="color"] {
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        button:hover, input[type="color"]:hover {
+            background-color: #333;
+        }
+    </style>
+</head>
+<body>
+    <h1>Night Vision Camera with Motion Detection</h1>
+    <div id="controls">
+        <label for="colorPicker">Choose a color:</label>
+        <input type="color" id="colorPicker" value="#00ff00">
+        <label for="borderColorPicker">Choose camera border color:</label>
+        <input type="color" id="borderColorPicker" value="#00ff00">
+        <label for="motionBorderColorPicker">Choose motion border color:</label>
+        <input type="color" id="motionBorderColorPicker" value="#ff0000">
+        <button id="switchCamera">Switch Camera</button>
+    </div>
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+    <script src="https://docs.opencv.org/4.x/opencv.js"></script>
+    <script>
+        let currentStream;
+        let currentDeviceId;
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const context = canvas.getContext('2d');
+        const colorPicker = document.getElementById('colorPicker');
+        const borderColorPicker = document.getElementById('borderColorPicker');
+        const motionBorderColorPicker = document.getElementById('motionBorderColorPicker');
+        const switchCameraButton = document.getElementById('switchCamera');
+
+        async function startCamera(deviceId) {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+            const constraints = {
+                video: {
+                    deviceId: deviceId ? { exact: deviceId } : undefined,
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }
+            };
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = currentStream;
+                const videoTrack = currentStream.getVideoTracks()[0];
+                currentDeviceId = videoTrack.getSettings().deviceId;
+
+                video.addEventListener('play', () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    detectMotion();
+                });
+            } catch (err) {
+                console.error('Error accessing the camera: ', err);
+            }
+        }
+
+        function detectMotion() {
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            let frame = context.getImageData(0, 0, canvas.width, canvas.height);
+            let src = cv.matFromImageData(frame);
+            let gray = new cv.Mat();
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+            let dst = new cv.Mat();
+            cv.threshold(gray, dst, 127, 255, cv.THRESH_BINARY);
+            let contours = new cv.MatVector();
+            let hierarchy = new cv.Mat();
+            cv.findContours(dst, contours, hierarchy, cv.RETR_CCOMP, cv.CHAIN_APPROX_SIMPLE);
+            for (let i = 0; i < contours.size(); ++i) {
+                let cnt = contours.get(i);
+                let rect = cv.boundingRect(cnt);
+                context.strokeStyle = motionBorderColorPicker.value;
+                context.lineWidth = 2;
+                context.strokeRect(rect.x, rect.y, rect.width, rect.height);
+            }
+            src.delete(); gray.delete(); dst.delete(); contours.delete(); hierarchy.delete();
+            requestAnimationFrame(detectMotion);
+        }
+
+        colorPicker.addEventListener('input', (event) => {
+            video.style.filter = `brightness(150%) contrast(200%) hue-rotate(${event.target.value})`;
+        });
+
+        borderColorPicker.addEventListener('input', (event) => {
+            video.style.borderColor = event.target.value;
+            video.style.boxShadow = `0 0 20px ${event.target.value}`;
+        });
+
+        motionBorderColorPicker.addEventListener('input', (event) => {
+            // This will change the color of the motion detection border
+        });
+
+        switchCameraButton.addEventListener('click', async () => {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(device => device.kind === 'videoinput');
+            const currentIndex = videoDevices.findIndex(device => device.deviceId === currentDeviceId);
+            const nextIndex = (currentIndex + 1) % videoDevices.length;
+            startCamera(videoDevices[nextIndex].deviceId);
+        });
+
+        startCamera();
+    </script>
+</body>
+</html>
